@@ -1,8 +1,4 @@
-//#include "sdios.h"
-//#include <EEPROM.h>
-//#define _TASK_SELF_DESTRUCT
-//#define _TASK_SLEEP_ON_IDLE_RUN
-#define _TASK_MICRO_RES 
+#define _TASK_MICRO_RES
 #define _TASK_PRIORITY
 #define _TASK_WDT_IDS
 #define _TASK_TIMECRITICAL
@@ -14,29 +10,30 @@
 #include <WiFi.h>
 #include <queue>
 #include <time.h>
+#include <ESPAsyncWebServer.h>
+#include <AsyncTCP.h>
+#include "SPIFFS.h"
 
-#define   STATION_SSID      "shms"
-#define   STATION_PASSWORD  "rumah28!!"
 #define   PUBLISH_TOPIC     "from/1"
 #define   UPLOAD_TOPIC      "from/1/upload"
 #define   SUB_TOPIC         "to/1"
-#define   MQTT_USERNAME     "esp32"
-#define   MQTT_PASSWORD     "rumah28!!"
+#define   MQTT_USERNAME     "public" //"esp32"
+#define   MQTT_PASSWORD     "public" //"rumah28!!"
 
-IPAddress myIP(0, 0, 0, 0);
-//IPAddress mqttBroker(192, 168, 4, 1);
-//const char* ntpServer = "pool.ntp.org";
-const char* ntpServer = "192.168.4.1";
+
+const char* mqttBroker = "192.168.28.1";
+const char* ntpServer = "pool.ntp.org";
+//const char* ntpServer = "192.168.4.1";
 const long  gmtOffset_sec = 25200;
 const int   daylightOffset_sec = 0;
-bool ntpStatus;
-Scheduler userScheduler,hpr;
+bool ntpStatus = false;
+Scheduler userScheduler, hpr;
 WiFiClient wifiClient;
 MQTTClient mqttClient(16100);
 
 const int PACK_SIZE = 500 ;
 struct __attribute__((packed))pack {
-  float v1, v2, v3, v4;
+  float v1, v2, v3;
 };
 
 struct __attribute__((packed))fullpack {
@@ -59,7 +56,7 @@ bool OnEnable();
 void OnDisable();
 void printLocalTime();
 void sendingData();
-void initWifi();
+bool initWiFi();
 struct tm timeinfo;
 bool start_sampling = true;
 std::queue <Task*> toDelete;
@@ -84,3 +81,37 @@ File32 dir;
 bool sdBeginstatus = false;
 bool initSD();
 bool uploadFromSD = true;
+
+/*================================ WIFI MANAGER ==================================*/
+AsyncWebServer server(80);
+
+// Search for parameter in HTTP POST request
+const char* PARAM_INPUT_1 = "ssid";
+const char* PARAM_INPUT_2 = "pass";
+const char* PARAM_INPUT_3 = "broker";
+const char* PARAM_INPUT_4 = "gateway";
+
+
+//Variables to save values from HTML form
+String ssid;
+String pass;
+String broker;
+String gateway;
+
+// File paths to save input values permanently
+const char* ssidPath = "/ssid.txt";
+const char* passPath = "/pass.txt";
+const char* brokerPath = "/broker.txt";
+const char* gatewayPath = "/gateway.txt";
+
+IPAddress localIP;
+//IPAddress localIP(192, 168, 1, 200); // hardcoded
+
+// Set your Gateway IP address
+IPAddress localGateway;
+//IPAddress localGateway(192, 168, 1, 1); //hardcoded
+IPAddress subnet(255, 255, 255, 0);
+
+// Timer variables
+unsigned long previousMillis = 0;
+const long interval = 10000;  // interval to wait for Wi-Fi connection (milliseconds)
