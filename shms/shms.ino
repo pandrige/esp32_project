@@ -1,8 +1,8 @@
 #include "config.h"
 
-Task tasksampling(TASK_MILLISECOND * 2 , TASK_FOREVER, &samplingData, &hpr, false);
-Task updateMqttConnection(TASK_SECOND * 30, TASK_FOREVER, &updateConnection, &userScheduler, false);
-Task tGarbageCollection(TASK_MILLISECOND * 500, TASK_FOREVER, &tobeDeleted, &userScheduler, false);
+Task tasksampling(TASK_MILLISECOND * 1 , TASK_FOREVER, &samplingData, &hpr, false);
+Task updateMqttConnection(TASK_SECOND * 60, TASK_FOREVER, &updateConnection, &userScheduler, false);
+Task tGarbageCollection(TASK_MILLISECOND * 10, TASK_FOREVER, &tobeDeleted, &userScheduler, false);
 Task updateNTP(TASK_HOUR * 12, TASK_FOREVER, &updateTime, &userScheduler, false);
 
 void setup() {

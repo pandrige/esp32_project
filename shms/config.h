@@ -17,8 +17,8 @@
 #define   PUBLISH_TOPIC     "from/1"
 #define   UPLOAD_TOPIC      "from/1/upload"
 #define   SUB_TOPIC         "to/1"
-#define   MQTT_USERNAME     "public" //"esp32"
-#define   MQTT_PASSWORD     "public" //"rumah28!!"
+#define   MQTT_USERNAME     "public" 
+#define   MQTT_PASSWORD     "public" 
 
 
 const char* mqttBroker = "192.168.28.1";
@@ -29,9 +29,9 @@ const int   daylightOffset_sec = 0;
 bool ntpStatus = false;
 Scheduler userScheduler, hpr;
 WiFiClient wifiClient;
-MQTTClient mqttClient(16100);
+MQTTClient mqttClient(16500);
 
-const int PACK_SIZE = 500 ;
+const int PACK_SIZE = 1000 ;
 struct __attribute__((packed))pack {
   float v1, v2, v3;
 };
@@ -76,12 +76,14 @@ const uint8_t SOFT_MOSI_PIN = MOSI;
 const uint8_t SOFT_SCK_PIN = SCK;
 SoftSpiDriver<SOFT_MISO_PIN, SOFT_MOSI_PIN, SOFT_SCK_PIN> softSpi;
 #define SD_CONFIG SdSpiConfig(SD_CS_PIN, DEDICATED_SPI, SD_SCK_MHZ(50), &softSpi)
-SdFat32 sd;
-File32 dir;
+SdFat sd;
+FsFile dir;
+FsFile myFile;
 bool sdBeginstatus = false;
 bool initSD();
 bool uploadFromSD = true;
-
+String folderName;
+int fileInFolder = -1;
 /*================================ WIFI MANAGER ==================================*/
 AsyncWebServer server(80);
 

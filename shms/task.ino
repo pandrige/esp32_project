@@ -2,14 +2,16 @@ void saveData() {
   fullpack *dataToSave = toSave.front();
   if (sdBeginstatus) {
     unsigned long start_write = millis();
-    char filename[32];
-    sprintf(filename, "%u.bin", dataToSave->rawtime);
-    Serial.print(filename);
-    if (!dir.isOpen()) {
-      dir.open("/DATA");
+    if (fileInFolder < 0 || fileInFolder > 99) {
+      FsFile newFolder;
+      folderName = (String)mktime(&timeinfo);
+      if (newFolder.mkdir(&dir,folderName.c_str())) {
+        fileInFolder = 0;
+      }
     }
-    File32 myFile;
-    if (myFile.open(&dir, filename, O_WRONLY | O_CREAT )) {
+    String filename = "/DATA/" + folderName + "/" + (String)(start_write / 1000);
+    Serial.print(filename);
+    if (myFile.open(filename.c_str(), O_WRONLY | O_CREAT | O_APPEND)) {
       if (myFile.write((char*)dataToSave, sizeof(fullpack)) > 0) {
         printf(" Write success \n");
         uploadFromSD = true;
@@ -17,11 +19,12 @@ void saveData() {
         printf(" Write failed \n");
       }
       myFile.close();
+      fileInFolder++;
     } else {
       printf(" Failed to make file \n");
     }
-    dir.close();
-    printf("\tTime Elapse = %u ms \n", (millis() - start_write));
+    uint32_t elapse = millis() - start_write;
+    printf("\tTime Elapse = %u ms \n", elapse);
   }
   toSave.pop();
   delete(dataToSave);
@@ -35,14 +38,14 @@ void sendingData() {
     sprintf(filename, "%u.bin", dataToSend->rawtime);
     Serial.print(filename);
     if (WiFi.status() == WL_CONNECTED && mqttClient.connected()) {
-      if (mqttClient.publish(PUBLISH_TOPIC, (char*)dataToSend, sizeof(fullpack), true, 1)) {
+      if (mqttClient.publish(PUBLISH_TOPIC, (char*)dataToSend, sizeof(fullpack), true, 2)) {
         printf(" Publish succeed \n");
         isSended = true;
       }
     }
     if (!isSended) {
       printf(" Publish Failed \n");
-      fullpack *dataToSave = (fullpack*)malloc(sizeof(fullpack));
+      fullpack *dataToSave = (fullpack*)malloc(sizeof(fullpack)); //2*14
       memmove(dataToSave, dataToSend, sizeof(fullpack));
       toSave.push(dataToSave);
       Task *t = new Task(TASK_SECOND * 1, 1, &saveData, &userScheduler, true, OnEnable, OnDisable);
@@ -53,41 +56,34 @@ void sendingData() {
 }
 
 void uploadData() {
+  uint32_t startTask = millis();
   if (sdBeginstatus) {
-    uint32_t startTask = millis();
     if (!dir.isOpen()) {
-      dir.open("/DATA");
-    } else {
-      initSD();
+      dir.open("/DATA", O_READ);
     }
-    File32 upload;
-    char filename[32];
-    if (upload.openNext(&dir, O_READ)) {
-      upload.getName(filename, sizeof(filename));
-      upload.close();
-      Serial.print("\tUploading from SD Card : ");
-      Serial.println(filename);
-      //      printf("\tUploading %u from SD Card \n",filename);
-      if (upload.open(&dir, filename, O_RDONLY)) {
-        if (mqttClient.publish(UPLOAD_TOPIC, (char*)&upload, upload.fileSize(), true, 2)) {
-          printf("\t\tUpload OK \n");
-          upload.close();
-          if (dir.remove(filename)) {
-            printf("\t\tFile Removed \n");
+    FsFile uploadDir;
+    if (uploadDir.openNext(&dir, O_READ)) {
+      if (myFile.openNext(&uploadDir, O_READ)) {
+        myFile.printName(&Serial);
+        if (mqttClient.publish(UPLOAD_TOPIC, (char*)&myFile, myFile.fileSize(), true, 2)) {
+          printf("\n\tUpload OK \n");
+          if (myFile.remove()) {
+            printf("\tFile Remove \n");
           }
         } else {
-          printf("\t\tUpload Failed \n");
+          printf("\n\tUpload Failed \n");
         }
+        myFile.close();
       } else {
-        printf("\t\tOpen File Failed \n");
+        if (uploadDir.rmdir()) {
+          Serial.println("Directory Removed");
+        }
       }
     } else {
-      uploadFromSD = false;
+      Serial.println("Directory Empty");
     }
-    upload.close();
-    dir.close();
-    printf("\t\tElapse Time : %u ms \n", (millis() - startTask));
   }
+  printf("\t\tElapse Time : %u ms \n", (millis() - startTask));
 }
 
 void samplingData() {
@@ -97,7 +93,6 @@ void samplingData() {
     temp->v1 = (float)mpu.getAngleX();
     temp->v2 = (float)mpu.getAngleY();
     temp->v3 = (float)mpu.getAngleZ();
-//    temp->v4 = (float)t;
     if (t % PACK_SIZE == 0) {
       if (ntpStatus) {
         ntpStatus = getLocalTime(&timeinfo);
@@ -117,9 +112,10 @@ void samplingData() {
           ESP.restart();
         }
       }
+      //      uploadData();
       if (ntpStatus) {
         fullpack* dataq = (fullpack*)malloc(sizeof(fullpack));
-        memmove(dataq, &outpack, sizeof(fullpack));
+        memcpy(dataq, &outpack, sizeof(fullpack));
         toSend.push(dataq);
         Task *t = new Task(TASK_MILLISECOND * 1, 1, &sendingData, &userScheduler, true, OnEnable, OnDisable);
       }
@@ -137,11 +133,7 @@ void initmqttClient() {
 bool initSD() {
   Serial.println("Init Sd Card");
   delay(1000);
-  if (sdBeginstatus) {
-    return true;
-  }
-  sdBeginstatus = sd.begin(SD_CONFIG);
-  if (sdBeginstatus) {
+  if (sd.begin(SD_CONFIG)) {
     Serial.println("SD Card Init Success");
     if (!dir.open("/DATA")) {
       if (sd.mkdir("DATA")) {
@@ -153,11 +145,13 @@ bool initSD() {
     } else {
       Serial.println("open dir /DATA succes");
     }
+    sdBeginstatus = true;
   } else {
     Serial.println("SD Card Init Failed");
+    sdBeginstatus = true;
   }
-  return sdBeginstatus;
   delay(1000);
+  return sdBeginstatus;
 }
 
 
@@ -226,9 +220,9 @@ void updateConnection() {
 }
 
 void mqttconnect() {
-  if (mqttClient.connect("arduino", MQTT_USERNAME, MQTT_PASSWORD)) {
+  if (mqttClient.connect("", MQTT_USERNAME, MQTT_PASSWORD)) {
     Serial.println("connect mqtt client");
-    mqttClient.publish(PUBLISH_TOPIC, "Ready!");
+    //    mqttClient.publish(PUBLISH_TOPIC, "Ready!");
     mqttClient.subscribe(SUB_TOPIC);
   }
 }
