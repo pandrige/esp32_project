@@ -1,28 +1,46 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>ESP Wi-Fi Manager</title>
+  <title>SHMS Wi-Fi Manager</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" href="data:,">
   <link rel="stylesheet" type="text/css" href="style.css">
 </head>
 <body>
   <div class="topnav">
-    <h1>ESP Wi-Fi Manager</h1>
+    <h1>SHMS Wi-Fi Manager</h1>
   </div>
   <div class="content">
     <div class="card-grid">
       <div class="card">
         <form action="/" method="POST">
           <p>
-            <label for="ssid">SSID</label>
+            <label for="ssid">  WIFI-SSID  </label>
             <input type="text" id ="ssid" name="ssid"><br>
-            <label for="pass">Password</label>
+            <label for="pass">WIFI-Password</label>
             <input type="text" id ="pass" name="pass"><br>
-            <label for="broker">MQTT Broker</label>
+            <label for="gFactor">Choose G Factor</label>
+            <select name="gFactor" id="gFactor">
+              <option value="1">1 G</option>
+              <option value="2">2 G</option>
+              <option value="3">3 G</option>
+              <option value="4">4 G</option>
+              <option value="5">5 G</option>
+            </select><br>
+            <label for="broker">  MQTT Broker  </label>
             <input type="text" id ="broker" name="broker" value="public.cloud.shiftr.io"><br>
-            <label for="gateway">Gateway Address</label>
-            <input type="text" id ="gateway" name="gateway" value="192.168.28.1"><br>
+            <label for="username">MQTT Username</label>
+            <input type="text" id ="username" name="username"><br>
+            <label for="mqtt_pass">MQTT Password</label>
+            <input type="text" id ="mqtt_pass" name="mqtt_pass"><br>
+            <label for="qoS">Mqtt QoS Value </label>
+            <select name="qos" id="qos">
+              <option value="2"> QoS 2 </option>
+              <option value="1"> QoS 1 </option>
+              <option value="0"> QoS 0 </option>
+            </select><br>
+            <label for="NTP Server">  NTP Server  </label>
+            <input type="text" id ="ntp" name="ntp" value="pool.ntp.org"><br>
             <input type ="submit" value ="Submit">
           </p>
         </form>
