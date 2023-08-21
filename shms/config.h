@@ -1,11 +1,7 @@
-#define _TASK_MICRO_RES
-#define _TASK_PRIORITY
-#define _TASK_WDT_IDS
-#define _TASK_TIMECRITICAL
+#include <esp_sntp.h>
 #include <SPI.h>
 #include <SdFat.h>
-#include <MPU6050_light.h>
-#include <TaskScheduler.h>
+#include <mpu6500.h>
 #include <MQTT.h>
 #include <WiFi.h>
 #include <queue>
@@ -13,16 +9,21 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
 #include <Wire.h>
-#include "SPIFFS.h"
+#include <SPIFFS.h>
+#include <SimpleKalmanFilter.h>
 
 #define   PUBLISH_TOPIC     "from/1"
 #define   UPLOAD_TOPIC      "from/1/upload"
 #define   SUB_TOPIC         "to/1"
 
+TaskHandle_t Task1;
+TaskHandle_t Task2;
+TaskHandle_t Task3;
+TickType_t xInterval = 1;
+
 bool ntpStatus = false;
 const long  gmtOffset_sec = 25200;
 const int   daylightOffset_sec = 0;
-Scheduler userScheduler, hpr;
 WiFiClient wifiClient;
 MQTTClient mqttClient(16500);
 
@@ -33,9 +34,9 @@ struct __attribute__((packed))pack {
 
 struct __attribute__((packed))fullpack {
   uint32_t rawtime;
-  char id = 'i';
+  char id = 'a';
   uint8_t num = 3;
-  char typed[5] = "fff";
+  char typed[4] = "fff";
   pack buff[PACK_SIZE];
 } outpack;
 
@@ -43,26 +44,23 @@ struct __attribute__((packed))fullpack {
 void tobeDeleted();
 void initmqttClient();
 void samplingData();
-void updateConnection();
-void updateTime();
+void initTime();
 void uploadData();
 void mqttconnect();
-bool OnEnable();
-void OnDisable();
 void printLocalTime();
 void sendingData();
 bool initWiFi();
+void mqtt_client_loop();
 struct tm timeinfo;
-bool start_sampling = true;
-std::queue <Task*> toDelete;
+bool start_sampling = false;
 std::queue <fullpack*> toSend;
-std::queue <fullpack*> toSave;
 
 //== == == == == == == == == == == == MPU == == == == == == == == == == == == == == =
 
-MPU6050 mpu(Wire);
+
+bfs::Mpu6500 imu;
 bool mpuStatus = false;
-bool initMpu();
+void initMpu();
 
 //== == == == == == == == == == == = SDCARD == == == == == == == == == == == == =
 const uint8_t SD_CS_PIN = SS;
@@ -87,7 +85,7 @@ String pass;
 String broker;
 String username;
 String mqtt_pass;
-String gFactor;
+String gRange;
 String ntpServer;
 String qos;
 
@@ -97,7 +95,7 @@ const char* passPath = "/pass.txt";
 const char* brokerPath = "/broker.txt";
 const char* usernamePath = "/username.txt";
 const char* mqtt_passPath = "/mqtt_pass.txt";
-const char* gFactorPath = "/gFactorPath.txt";
+const char* gRangePath = "/gRangePath.txt";
 const char* ntpServerPath = "/ntpServerPath.txt";
 const char* qosPath = "/qosPatch.txt";
 IPAddress localIP;

@@ -1,5 +1,4 @@
-void saveData() {
-  fullpack *dataToSave = toSave.front();
+void saveData(fullpack *dataToSave) {
   if (sdBeginstatus) {
     unsigned long start_write = millis();
     if (fileInFolder < 0 || fileInFolder > 99) {
@@ -9,8 +8,8 @@ void saveData() {
         fileInFolder = 0;
       }
     }
-    String filename = "/DATA/" + folderName + "/" + (String)(start_write / 1000);
-    Serial.print(filename);
+    String filename = "/DATA/" + folderName + "/" + (String)(dataToSave->rawtime);
+    //    Serial.print(filename);
     FsFile myFile;
     if (myFile.open(filename.c_str(), O_WRONLY | O_CREAT)) {
       if (myFile.write((char*)dataToSave, sizeof(fullpack)) > 0) {
@@ -27,120 +26,138 @@ void saveData() {
     uint32_t elapse = millis() - start_write;
     printf("\tTime Elapse = %u ms \n", elapse);
   }
-  toSave.pop();
-  delete(dataToSave);
 }
 
-void sendingData() {
-  if (!toSend.empty()) {
-    unsigned long start_write = millis();
-    bool isSended = false;
-    fullpack *dataToSend = toSend.front();
-    char filename[32];
-    sprintf(filename, "%u.bin", dataToSend->rawtime);
-    Serial.print(filename);
-    if (WiFi.status() == WL_CONNECTED) {
-      if (mqttClient.connected()) {
-        if (mqttClient.publish(PUBLISH_TOPIC, (char*)dataToSend, sizeof(fullpack), true, qos.toInt())) {
-          printf(" Publish succeed \n");
-          isSended = true;
+void mqtt_client_loop(void *param) {
+  const TickType_t xFrequency = 1000;
+  TickType_t xLastWakeTime = xTaskGetTickCount ();
+  for (;;) {
+    mqttClient.loop();
+    if ( pdTRUE == xTaskDelayUntil( &xLastWakeTime, xFrequency )) {
+      if (WiFi.status() == WL_CONNECTED) {
+        if (!mqttClient.connected()) {
+          mqttconnect();
         }
-      } else {
-        Task *r = new Task(TASK_SECOND * 1, 1, &mqttconnect, &userScheduler, true, OnEnable, OnDisable);
       }
     }
-    if (!isSended) {
-      printf(" Publish Failed \n");
-      fullpack *dataToSave = (fullpack*)malloc(sizeof(fullpack)); //2*14
-      memmove(dataToSave, dataToSend, sizeof(fullpack));
-      toSave.push(dataToSave);
-      Task *t = new Task(TASK_SECOND * 1, 1, &saveData, &userScheduler, true, OnEnable, OnDisable);
-    } else {
+  }
+}
+
+void sendingData(void *param) {
+  char filename[32];
+  printf("Start Task sending data on Core %u \n", xPortGetCoreID());
+  const TickType_t xFrequency = 500;
+  TickType_t xLastWakeTime = xTaskGetTickCount ();
+  for (;;) {
+    if ( pdTRUE == xTaskDelayUntil( &xLastWakeTime, xFrequency )) {
+      if (!toSend.empty()) {
+        unsigned long start_write = millis();
+        fullpack *dataToSend = toSend.front();
+        sprintf(filename, "%u.bin", dataToSend->rawtime);
+        Serial.print("Publish : ");
+        Serial.print(filename);
+        if (mqttClient.publish(PUBLISH_TOPIC, (char*)dataToSend, sizeof(fullpack), false, qos.toInt())) {
+          printf(" succeed \n");
+        } else {
+          printf(" Failed \n");
+          saveData(dataToSend);
+        }
+        toSend.pop();
+        delete(dataToSend);
+        printf("\tTime Elapse = %u ms \n", millis() - start_write);
+        printf("\tFree memory = %u \n", ESP.getFreeHeap());
+      }
       if (uploadFromSD) {
-        Task *t = new Task(TASK_SECOND * 1, 1, &uploadData, &userScheduler, true, OnEnable, OnDisable);
+        if (mqttClient.connected()) {
+          uploadData();
+        }
       }
     }
-    toSend.pop();
-    delete(dataToSend);
-    printf("\tTime Elapse = %u ms \n", millis() - start_write);
   }
 }
 
 void uploadData() {
-  printf("\nUpload From SD Card :\n");
-  uint32_t startTask = millis();
   if (sdBeginstatus) {
     FsFile uploadDir;
     char filename[11];
     dir.open("/DATA/", O_READ);
-    while (uploadDir.openNext(&dir, O_READ)) {
-      uploadDir.getName(filename, sizeof(filename));
-      if (!folderName.equals((String)filename)) {
-        break;
-      }
-    }
-    if (uploadDir.isOpen()) {
+    if (uploadDir.openNext(&dir, O_READ)) {
+      uint32_t startTask = millis();
       FsFile myFile;
       if (myFile.openNext(&uploadDir, O_READ)) {
+        Serial.print("\n Upload File ");
         myFile.printName(&Serial);
-        if (mqttClient.connected()) {
-          if (mqttClient.publish(UPLOAD_TOPIC, (char*)&myFile, sizeof(fullpack), true, qos.toInt())) {
-            printf("\n\tUpload OK \n");
-            myFile.getName(filename, sizeof(filename));
-            if (uploadDir.remove(filename)) {
-              printf("\tFile Removed \n");
-            } else {
-              printf("\tFile Removed Fail \n");
-            }
+        if (mqttClient.publish(UPLOAD_TOPIC, (char*)&myFile, sizeof(fullpack), false, qos.toInt())) {
+          printf("\tSucceed \n");
+          myFile.getName(filename, sizeof(filename));
+          if (uploadDir.remove(filename)) {
+            printf("\tFile Removed \n");
           } else {
-            printf("\n\tUpload Failed \n");
+            printf("\tFile Removed Fail \n");
           }
+        } else {
+          printf("\tFailed \n");
         }
         myFile.close();
+        printf("\tElapse Time : %u ms \n", (millis() - startTask));
       } else {
-        if (uploadDir.rmdir()) {
-          printf("\n\tDirectory Removed \n");
+        uploadDir.getName(filename, sizeof(filename));
+        if (!folderName.equals((String)filename)) {
+          if (uploadDir.rmdir()) {
+            printf("\tDirectory Removed \n");
+          }
+        } else {
+          uploadFromSD = false;
         }
       }
     } else {
-      printf("Directory Empty\n");
+      printf("\tDirectory Empty\n");
       uploadFromSD = false;
     }
   }
-  printf("\t\tElapse Time : %u ms \n", (millis() - startTask));
 }
 
-void samplingData() {
-  if (start_sampling) {
-    uint32_t t = tasksampling.getRunCounter() - 1;
-    pack* temp = &outpack.buff[t % PACK_SIZE];
-    temp->v1 = (float)mpu.getAngleX();
-    temp->v2 = (float)mpu.getAngleY();
-    temp->v3 = (float)mpu.getAngleZ();
-    if (t % PACK_SIZE == 0) {
-      if (ntpStatus) {
-        ntpStatus = getLocalTime(&timeinfo);
+void samplingData(void* param) {
+  printf("Start Task sampling data on Core %u \n", xPortGetCoreID());
+  uint16_t count = 0;
+//  const TickType_t xInterval = 1;
+  TickType_t xLastWakeTime = xTaskGetTickCount ();
+  SimpleKalmanFilter simpleKalmanFilterX(0.002, 0.002, 0.001);
+  SimpleKalmanFilter simpleKalmanFilterY(0.002, 0.002, 0.001);
+  SimpleKalmanFilter simpleKalmanFilterZ(0.002, 0.002, 0.001);
+  for (;;) {
+    if ( pdTRUE == xTaskDelayUntil( &xLastWakeTime, xInterval )) {
+      pack* temp = &outpack.buff[count % PACK_SIZE];
+      if (imu.Read()) {
+        temp->v1 = simpleKalmanFilterX.updateEstimate(imu.accel_x_mps2());
+        temp->v2 = simpleKalmanFilterY.updateEstimate(imu.accel_y_mps2());
+        temp->v3 = simpleKalmanFilterZ.updateEstimate(imu.accel_z_mps2());
       }
-      outpack.rawtime = mktime(&timeinfo);
-    }
-    if (t % PACK_SIZE == PACK_SIZE - 1) {
-      if (Serial.available()) {
-        String msg = Serial.readStringUntil('\n');
-        if (msg.equals("rst")) {
-          Serial.println("Start Reset SSID");
-          SPIFFS.remove(ssidPath);
-          SPIFFS.remove(passPath);
-          ESP.restart();
+      if (count % PACK_SIZE == PACK_SIZE - 1) {
+        if (ntpStatus && start_sampling) {
+          getLocalTime(&timeinfo);
+          outpack.rawtime = mktime(&timeinfo);
+          if (toSend.size() < 10) {
+            fullpack* dataq = (fullpack*)malloc(sizeof(fullpack));
+            memcpy(dataq, &outpack, sizeof(fullpack));
+            toSend.push(dataq);
+          }
+          Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+        }
+        if (Serial.available()) {
+          String msg = Serial.readStringUntil('\n');
+          if (msg.equals("rst")) {
+            Serial.println("Start Reset SSID");
+            SPIFFS.remove(ssidPath);
+            SPIFFS.remove(passPath);
+            ESP.restart();
+          }
+        }
+        if (count == 64999) {
+          count = 999;
         }
       }
-      if (ntpStatus) {
-        fullpack* dataq = (fullpack*)malloc(sizeof(fullpack));
-        memcpy(dataq, &outpack, sizeof(fullpack));
-        toSend.push(dataq);
-        Task *t = new Task(TASK_MILLISECOND * 1, 1, &sendingData, &userScheduler, true, OnEnable, OnDisable);
-      } else {
-        updateTime();
-      }
+      count++;
     }
   }
 }
@@ -150,6 +167,7 @@ void initmqttClient() {
   Serial.println(broker);
   mqttClient.begin(broker.c_str(), wifiClient);
   mqttClient.onMessageAdvanced(messageReceived);
+  mqttClient.setOptions(1, 1, 500);
 }
 
 bool initSD() {
@@ -165,21 +183,6 @@ bool initSD() {
       }
     } else {
       Serial.println("open dir /DATA succes");
-      FsFile traceDir;
-      char nama[11];
-      while (traceDir.openNext(&dir, O_READ)) {
-        traceDir.getName(nama, sizeof(nama));
-        Serial.println(nama);
-      }
-      if (traceDir.open(&dir, nama, O_READ)) {
-        FsFile traceFile;
-        while (traceFile.openNext(&traceDir, O_READ)) {
-          fileInFolder++;
-        }
-        folderName = (String)nama;
-        printf("File number in Forder : %u \n:", fileInFolder);
-        Serial.println("Folder Name : " + folderName);
-      }
     }
     sdBeginstatus = true;
   } else {
@@ -190,69 +193,56 @@ bool initSD() {
   return sdBeginstatus;
 }
 
-
-bool OnEnable() {
-  //  Serial.print("New Task ");
-  return  true;
-}
-void OnDisable() {
-  Task *t = &userScheduler.currentTask();
-  toDelete.push(t);
-  tGarbageCollection.enableIfNot();
-  printf("\tFree memory = %u \n", ESP.getFreeHeap());
-}
-void tobeDeleted() {
-  if ( toDelete.empty() ) {
-    tGarbageCollection.disable();
-    return;
+void initMpu() {
+  Wire.begin();
+  Wire.setClock(400000);
+  imu.Config(&Wire, bfs::Mpu6500::I2C_ADDR_PRIM);
+  if (!imu.Begin()) {
+    Serial.println("Error initializing communication with IMU");
+    while (1) {}
   }
-  Task *t = toDelete.front();
-  toDelete.pop();
-  delete t;
-}
-bool initMpu() {
-  if (mpu.begin()) {
-    mpuStatus = true;
-    Serial.println("mpu begin succeed");
-  } else {
-    mpuStatus = false;
-    Serial.println("mpu begin failed");
+  if (!imu.ConfigSrd(0)) {
+    Serial.println("Error configured SRD");
+    while (1) {}
   }
-  mpu.calcOffsets();
-  return mpuStatus;
+  if (gRange.toInt() == 0) {
+    imu.ConfigAccelRange(bfs::Mpu6500::ACCEL_RANGE_2G);
+  }
+  if (gRange.toInt() == 1) {
+    imu.ConfigAccelRange(bfs::Mpu6500::ACCEL_RANGE_4G);
+  }
+  if (gRange.toInt() == 2) {
+    imu.ConfigAccelRange(bfs::Mpu6500::ACCEL_RANGE_8G);
+  }
+  if (gRange.toInt() == 3) {
+    imu.ConfigAccelRange(bfs::Mpu6500::ACCEL_RANGE_16G);
+  }
+  Serial.printf("Current Accel Range = %u \n", imu.accel_range());
 }
 
 void messageReceived(MQTTClient * mqttClient, char topic[], char bytes[], int length) {
-  Serial.print("Message arrived [");
-  Serial.println(topic);
-  Serial.print("] ");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)bytes[i]);
+  String msg = (String)bytes;
+  if (msg.equals("start")) {
+    Serial.println("Start Sampling");
+    start_sampling = true;
+  } else if (msg.equals("stop")) {
+    Serial.println("Stop Sampling");
+    start_sampling = false;
   }
-  Serial.println();
 }
-void updateTime() {
+void initTime() {
   Serial.println("config NTP ");
+  sntp_set_sync_interval(12 * 60 * 60 * 1000UL); // 12 hours
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer.c_str());
-  ntpStatus = getLocalTime(&timeinfo);
 }
 
-void updateConnection() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi not Connected");
-    updateNTP.disable();
-  } else {
-    if (ntpStatus) {
-      updateNTP.enableIfNot();
-      Serial.println("");
-      Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
-    } else {
-      Task *t = new Task(TASK_SECOND * 0, 1, &updateTime, &userScheduler, true, OnEnable, OnDisable);
-    }
-  }
+void cbSyncTime(struct timeval * tv)  { // callback function to show when NTP was synchronized
+  Serial.println(F("NTP time synched"));
+  ntpStatus = true;
 }
 
 void mqttconnect() {
+  mqttClient.setWill("client_disconect/1", "1");
   if (mqttClient.connect("", username.c_str(), mqtt_pass.c_str())) {
     printf("\n connect mqtt client \n");
     mqttClient.subscribe(SUB_TOPIC);
@@ -268,21 +258,14 @@ void initSPIFFS() {
     broker = readFile(SPIFFS, brokerPath);
     username = readFile (SPIFFS, usernamePath);
     mqtt_pass = readFile (SPIFFS, mqtt_passPath);
-    gFactor = readFile (SPIFFS, gFactorPath);
+    gRange = readFile (SPIFFS, gRangePath);
     ntpServer = readFile (SPIFFS, ntpServerPath);
     qos = readFile(SPIFFS, qosPath);
-//    Serial.println(ssid);
-//    Serial.println(pass);
-//    Serial.println(broker);
-//    Serial.println(username);
-//    Serial.println(mqtt_pass);
-//    Serial.println(gFactor);
-//    Serial.println(ntpServer);
     Serial.println("SPIFFS mounted successfully");
   }
 }
 
-String readFile(fs::FS &fs, const char * path) {
+String readFile(fs::FS & fs, const char * path) {
 //  Serial.printf("Reading file: %s\r\n", path);
   File file = fs.open(path);
   if (!file || file.isDirectory()) {
@@ -299,9 +282,8 @@ String readFile(fs::FS &fs, const char * path) {
 }
 
 // Write file to SPIFFS
-void writeFile(fs::FS &fs, const char * path, const char * message) {
-  Serial.printf("Writing file: %s\r\n", path);
-
+void writeFile(fs::FS & fs, const char * path, const char * message) {
+  //  Serial.printf("Writing file: %s\r\n", path);
   File file = fs.open(path, FILE_WRITE);
   if (!file) {
     Serial.println("- failed to open file for writing");
@@ -408,13 +390,13 @@ void wifi_AP() {
             writeFile(SPIFFS, mqtt_passPath, mqtt_pass.c_str());
           }
         }
-        if (p->name() == "gFactor") {
-          gFactor = p->value().c_str();
-          if (!gFactor.equals("")) {
-            Serial.print("gFactor set to: ");
-            Serial.println(gFactor);
+        if (p->name() == "gRange") {
+          gRange = p->value().c_str();
+          if (!gRange.equals("")) {
+            Serial.print("G Range set to: ");
+            Serial.println(gRange);
             // Write file to save value
-            writeFile(SPIFFS, gFactorPath, gFactor.c_str());
+            writeFile(SPIFFS, gRangePath, gRange.c_str());
           }
         }
         if (p->name() == "ntp") {
