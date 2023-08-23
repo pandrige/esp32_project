@@ -19,12 +19,22 @@
             <input type="text" id ="ssid" name="ssid"><br>
             <label for="pass">WIFI-Password</label>
             <input type="text" id ="pass" name="pass"><br>
+            <label for="sensorNum">Sensor Number</label>
+            <select name="sensorNum" id="sensorNum">
+              <script>                
+                for(let i = "1" ; i<="10"; i++){
+                  document.write("<option value = "+ i + ">"+i+"</option>");
+                }
+              </script>
+            </select><br>
             <label for="gRange">Choose G Range</label>
             <select name="gRange" id="gRange">
-              <option value="0">+/- 2 G (default)</option>
-              <option value="1">+/- 4 G</option>
-              <option value="2">+/- 8 G</option>
-              <option value="3">+/- 16 G</option>
+              <script>
+                const range = ["2G", "4G", "8G", "16G"];
+                for(let i in range){
+                  document.write("<option value = "+ range[i] + ">"+range[i]+"</option>");
+                }
+              </script>
             </select><br>
             <label for="broker">  MQTT Broker  </label>
             <input type="text" id ="broker" name="broker" value="gw.wlan"><br>
@@ -39,7 +49,7 @@
               <option value="0"> QoS 0 </option>
             </select><br>
             <label for="NTP Server">  NTP Server  </label>
-            <input type="text" id ="ntp" name="ntp" value="pool.ntp.org"><br>
+            <input type="text" id ="ntp" name="ntp" value="gw.wlan"><br>
             <input type ="submit" value ="Submit">
           </p>
         </form>

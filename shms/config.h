@@ -11,10 +11,7 @@
 #include <Wire.h>
 #include <SPIFFS.h>
 #include <SimpleKalmanFilter.h>
-
-#define   PUBLISH_TOPIC     "from/1"
-#define   UPLOAD_TOPIC      "from/1/upload"
-#define   SUB_TOPIC         "to/1"
+#define   SUB_TOPIC "command"
 
 TaskHandle_t Task1;
 TaskHandle_t Task2;
@@ -26,7 +23,8 @@ const long  gmtOffset_sec = 25200;
 const int   daylightOffset_sec = 0;
 WiFiClient wifiClient;
 MQTTClient mqttClient(16500);
-
+String PUBLISH_TOPIC;
+String UPLOAD_TOPIC;
 const int PACK_SIZE = 1000 ;
 struct __attribute__((packed))pack {
   float v1, v2, v3;
@@ -40,7 +38,6 @@ struct __attribute__((packed))fullpack {
   pack buff[PACK_SIZE];
 } outpack;
 
-//void messageReceived(MQTTClient *mqttClient, char topic[], char bytes[], int length);
 void tobeDeleted();
 void initmqttClient();
 void samplingData();
@@ -88,8 +85,10 @@ String mqtt_pass;
 String gRange;
 String ntpServer;
 String qos;
+String sensorNum;
 
 // File paths to save input values permanently
+const char* sensorNumPath = "/sensorNumPath.txt";
 const char* ssidPath = "/ssid.txt";
 const char* passPath = "/pass.txt";
 const char* brokerPath = "/broker.txt";

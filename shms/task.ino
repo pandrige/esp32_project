@@ -1,7 +1,7 @@
 void saveData(fullpack *dataToSave) {
   if (sdBeginstatus) {
     unsigned long start_write = millis();
-    if (fileInFolder < 0 || fileInFolder > 99) {
+    if (fileInFolder < 0 || fileInFolder > 59) {
       FsFile newFolder;
       folderName = (String)mktime(&timeinfo);
       if (newFolder.mkdir(&dir, folderName.c_str())) {
@@ -56,7 +56,8 @@ void sendingData(void *param) {
         sprintf(filename, "%u.bin", dataToSend->rawtime);
         Serial.print("Publish : ");
         Serial.print(filename);
-        if (mqttClient.publish(PUBLISH_TOPIC, (char*)dataToSend, sizeof(fullpack), false, qos.toInt())) {
+        
+        if (mqttClient.publish(PUBLISH_TOPIC.c_str(), (char*)dataToSend, sizeof(fullpack), false, qos.toInt())) {
           printf(" succeed \n");
         } else {
           printf(" Failed \n");
@@ -87,7 +88,7 @@ void uploadData() {
       if (myFile.openNext(&uploadDir, O_READ)) {
         Serial.print("\n Upload File ");
         myFile.printName(&Serial);
-        if (mqttClient.publish(UPLOAD_TOPIC, (char*)&myFile, sizeof(fullpack), false, qos.toInt())) {
+        if (mqttClient.publish(UPLOAD_TOPIC.c_str(), (char*)&myFile, sizeof(fullpack), false, qos.toInt())) {
           printf("\tSucceed \n");
           myFile.getName(filename, sizeof(filename));
           if (uploadDir.remove(filename)) {
@@ -120,11 +121,11 @@ void uploadData() {
 void samplingData(void* param) {
   printf("Start Task sampling data on Core %u \n", xPortGetCoreID());
   uint16_t count = 0;
-//  const TickType_t xInterval = 1;
+  //  const TickType_t xInterval = 1;
   TickType_t xLastWakeTime = xTaskGetTickCount ();
-  SimpleKalmanFilter simpleKalmanFilterX(0.002, 0.002, 0.001);
-  SimpleKalmanFilter simpleKalmanFilterY(0.002, 0.002, 0.001);
-  SimpleKalmanFilter simpleKalmanFilterZ(0.002, 0.002, 0.001);
+  SimpleKalmanFilter simpleKalmanFilterX(0.1, 0.1, 0.01);
+  SimpleKalmanFilter simpleKalmanFilterY(0.1, 0.1, 0.01);
+  SimpleKalmanFilter simpleKalmanFilterZ(0.1, 0.1, 0.01);
   for (;;) {
     if ( pdTRUE == xTaskDelayUntil( &xLastWakeTime, xInterval )) {
       pack* temp = &outpack.buff[count % PACK_SIZE];
@@ -168,6 +169,8 @@ void initmqttClient() {
   mqttClient.begin(broker.c_str(), wifiClient);
   mqttClient.onMessageAdvanced(messageReceived);
   mqttClient.setOptions(1, 1, 500);
+  String will_topic = "disconnected";
+  mqttClient.setWill(will_topic.c_str(), sensorNum.c_str());
 }
 
 bool initSD() {
@@ -205,16 +208,16 @@ void initMpu() {
     Serial.println("Error configured SRD");
     while (1) {}
   }
-  if (gRange.toInt() == 0) {
+  if (gRange.equals("2G")) {
     imu.ConfigAccelRange(bfs::Mpu6500::ACCEL_RANGE_2G);
   }
-  if (gRange.toInt() == 1) {
+  if (gRange.equals("4G")) {
     imu.ConfigAccelRange(bfs::Mpu6500::ACCEL_RANGE_4G);
   }
-  if (gRange.toInt() == 2) {
+  if (gRange.equals("8G")) {
     imu.ConfigAccelRange(bfs::Mpu6500::ACCEL_RANGE_8G);
   }
-  if (gRange.toInt() == 3) {
+  if (gRange.equals("16G")) {
     imu.ConfigAccelRange(bfs::Mpu6500::ACCEL_RANGE_16G);
   }
   Serial.printf("Current Accel Range = %u \n", imu.accel_range());
@@ -242,10 +245,12 @@ void cbSyncTime(struct timeval * tv)  { // callback function to show when NTP wa
 }
 
 void mqttconnect() {
-  mqttClient.setWill("client_disconect/1", "1");
   if (mqttClient.connect("", username.c_str(), mqtt_pass.c_str())) {
     printf("\n connect mqtt client \n");
-    mqttClient.subscribe(SUB_TOPIC);
+    mqttClient.subscribe(SUB_TOPIC, 2);
+    String sub_topic = "to/" + sensorNum;
+    mqttClient.subscribe(sub_topic.c_str(), 2);
+    mqttClient.publish("connected",sensorNum.c_str(),2);
   }
 }
 
@@ -261,12 +266,15 @@ void initSPIFFS() {
     gRange = readFile (SPIFFS, gRangePath);
     ntpServer = readFile (SPIFFS, ntpServerPath);
     qos = readFile(SPIFFS, qosPath);
+    sensorNum = readFile(SPIFFS, sensorNumPath);
     Serial.println("SPIFFS mounted successfully");
+    PUBLISH_TOPIC = "from/" + sensorNum;
+    UPLOAD_TOPIC = "from/" + sensorNum + "/upload";
   }
 }
 
 String readFile(fs::FS & fs, const char * path) {
-//  Serial.printf("Reading file: %s\r\n", path);
+  Serial.printf("Reading file: %s\r\n", path);
   File file = fs.open(path);
   if (!file || file.isDirectory()) {
     Serial.println("- failed to open file for reading");
@@ -415,6 +423,15 @@ void wifi_AP() {
             Serial.println(qos);
             // Write file to save value
             writeFile(SPIFFS, qosPath, qos.c_str());
+          }
+        }
+        if (p->name() == "sensorNum") {
+          sensorNum = p->value().c_str();
+          if (!sensorNum.equals("")) {
+            Serial.print("Sensor Number set to: ");
+            Serial.println(sensorNum);
+            // Write file to save value
+            writeFile(SPIFFS, sensorNumPath, sensorNum.c_str());
           }
         }
         //Serial.printf("POST[%s]: %s\n", p->name().c_str(), p->value().c_str());

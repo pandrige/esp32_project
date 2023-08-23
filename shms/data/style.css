@@ -70,12 +70,13 @@ input[type=submit]:hover {
 
 input[type=text], input[type=number], select {
   width: 50%;
-  padding: 12px 20px;
-  margin: 18px;
+  padding: 10px 20px;
+  margin: 10px;
   display: inline-block;
   border: 1px solid #ccc;
   border-radius: 2px;
   box-sizing: border-box;
+  justify-items: stretch;
 }
 
 label {
