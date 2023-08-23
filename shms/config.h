@@ -1,7 +1,7 @@
 #include <esp_sntp.h>
 #include <SPI.h>
 #include <SdFat.h>
-#include <mpu6500.h>
+//#include <mpu6500.h>
 #include <MQTT.h>
 #include <WiFi.h>
 #include <queue>
@@ -11,7 +11,11 @@
 #include <Wire.h>
 #include <SPIFFS.h>
 #include <SimpleKalmanFilter.h>
+#include <FastIMU.h>
+#define IMU_ADDRESS 0x68    //Change to the address of the IMU
 #define   SUB_TOPIC "command"
+
+
 
 TaskHandle_t Task1;
 TaskHandle_t Task2;
@@ -38,16 +42,15 @@ struct __attribute__((packed))fullpack {
   pack buff[PACK_SIZE];
 } outpack;
 
-void tobeDeleted();
 void initmqttClient();
-void samplingData();
 void initTime();
+bool initWiFi();
+void sendingData();
+void samplingData();
 void uploadData();
 void mqttconnect();
-void printLocalTime();
-void sendingData();
-bool initWiFi();
 void mqtt_client_loop();
+void initMpu();
 struct tm timeinfo;
 bool start_sampling = false;
 std::queue <fullpack*> toSend;
@@ -55,9 +58,10 @@ std::queue <fullpack*> toSend;
 //== == == == == == == == == == == == MPU == == == == == == == == == == == == == == =
 
 
-bfs::Mpu6500 imu;
+MPU6500 imu;               //Change to the name of any supported IMU! 
+calData calib = { 0 };
+AccelData accelData;
 bool mpuStatus = false;
-void initMpu();
 
 //== == == == == == == == == == == = SDCARD == == == == == == == == == == == == =
 const uint8_t SD_CS_PIN = SS;

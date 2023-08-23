@@ -56,7 +56,7 @@ void sendingData(void *param) {
         sprintf(filename, "%u.bin", dataToSend->rawtime);
         Serial.print("Publish : ");
         Serial.print(filename);
-        
+
         if (mqttClient.publish(PUBLISH_TOPIC.c_str(), (char*)dataToSend, sizeof(fullpack), false, qos.toInt())) {
           printf(" succeed \n");
         } else {
@@ -121,19 +121,19 @@ void uploadData() {
 void samplingData(void* param) {
   printf("Start Task sampling data on Core %u \n", xPortGetCoreID());
   uint16_t count = 0;
-  //  const TickType_t xInterval = 1;
   TickType_t xLastWakeTime = xTaskGetTickCount ();
-  SimpleKalmanFilter simpleKalmanFilterX(0.1, 0.1, 0.01);
-  SimpleKalmanFilter simpleKalmanFilterY(0.1, 0.1, 0.01);
-  SimpleKalmanFilter simpleKalmanFilterZ(0.1, 0.1, 0.01);
+  SimpleKalmanFilter simpleKalmanFilterX(0.001, 0.001, 0.01);
+  SimpleKalmanFilter simpleKalmanFilterY(0.001, 0.001, 0.01);
+  SimpleKalmanFilter simpleKalmanFilterZ(0.001, 0.001, 0.01);
   for (;;) {
     if ( pdTRUE == xTaskDelayUntil( &xLastWakeTime, xInterval )) {
       pack* temp = &outpack.buff[count % PACK_SIZE];
-      if (imu.Read()) {
-        temp->v1 = simpleKalmanFilterX.updateEstimate(imu.accel_x_mps2());
-        temp->v2 = simpleKalmanFilterY.updateEstimate(imu.accel_y_mps2());
-        temp->v3 = simpleKalmanFilterZ.updateEstimate(imu.accel_z_mps2());
-      }
+      imu.update();
+      imu.getAccel(&accelData);
+      temp->v1 = simpleKalmanFilterX.updateEstimate(accelData.accelX);
+      temp->v2 = simpleKalmanFilterY.updateEstimate(accelData.accelY);
+      temp->v3 = simpleKalmanFilterZ.updateEstimate(accelData.accelZ);
+
       if (count % PACK_SIZE == PACK_SIZE - 1) {
         if (ntpStatus && start_sampling) {
           getLocalTime(&timeinfo);
@@ -199,28 +199,36 @@ bool initSD() {
 void initMpu() {
   Wire.begin();
   Wire.setClock(400000);
-  imu.Config(&Wire, bfs::Mpu6500::I2C_ADDR_PRIM);
-  if (!imu.Begin()) {
-    Serial.println("Error initializing communication with IMU");
-    while (1) {}
+  int err = imu.init(calib, IMU_ADDRESS);
+  if (err != 0) {
+    Serial.print("Error initializing IMU: ");
+    Serial.println(err);
+    while (true) {}
   }
-  if (!imu.ConfigSrd(0)) {
-    Serial.println("Error configured SRD");
-    while (1) {}
-  }
+  Serial.println("Keep IMU level.");
+  delay(5000);
+  imu.calibrateAccelGyro(&calib);
+  Serial.println("Calibration done!");
+
   if (gRange.equals("2G")) {
-    imu.ConfigAccelRange(bfs::Mpu6500::ACCEL_RANGE_2G);
+    err = imu.setAccelRange(2);
   }
-  if (gRange.equals("4G")) {
-    imu.ConfigAccelRange(bfs::Mpu6500::ACCEL_RANGE_4G);
+  else if (gRange.equals("4G")) {
+    err = imu.setAccelRange(4);
   }
-  if (gRange.equals("8G")) {
-    imu.ConfigAccelRange(bfs::Mpu6500::ACCEL_RANGE_8G);
+  else if (gRange.equals("8G")) {
+    err = imu.setAccelRange(8);
   }
-  if (gRange.equals("16G")) {
-    imu.ConfigAccelRange(bfs::Mpu6500::ACCEL_RANGE_16G);
+  else if (gRange.equals("16G")) {
+    err = imu.setAccelRange(16);
   }
-  Serial.printf("Current Accel Range = %u \n", imu.accel_range());
+  if (err != 0) {
+    Serial.print("Error Setting Acceleration range: ");
+    Serial.println(err);
+    while (true) {
+      ;
+    }
+  }
 }
 
 void messageReceived(MQTTClient * mqttClient, char topic[], char bytes[], int length) {
@@ -250,7 +258,7 @@ void mqttconnect() {
     mqttClient.subscribe(SUB_TOPIC, 2);
     String sub_topic = "to/" + sensorNum;
     mqttClient.subscribe(sub_topic.c_str(), 2);
-    mqttClient.publish("connected",sensorNum.c_str(),2);
+    mqttClient.publish("connected", sensorNum.c_str(), 2);
   }
 }
 
