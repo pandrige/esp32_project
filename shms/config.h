@@ -1,7 +1,6 @@
 #include <esp_sntp.h>
 #include <SPI.h>
 #include <SdFat.h>
-//#include <mpu6500.h>
 #include <MQTT.h>
 #include <WiFi.h>
 #include <queue>
@@ -13,7 +12,6 @@
 #include <SimpleKalmanFilter.h>
 #include <FastIMU.h>
 #define IMU_ADDRESS 0x68    //Change to the address of the IMU
-#define   SUB_TOPIC "command"
 
 
 
@@ -29,18 +27,21 @@ WiFiClient wifiClient;
 MQTTClient mqttClient(16500);
 String PUBLISH_TOPIC;
 String UPLOAD_TOPIC;
-const int PACK_SIZE = 1000 ;
+int PACK_SIZE = 1000 ;
+
 struct __attribute__((packed))pack {
   float v1, v2, v3;
 };
-
-struct __attribute__((packed))fullpack {
+struct __attribute__((packed))header{
   uint32_t rawtime;
   char id = 'a';
   uint8_t num = 3;
   char typed[4] = "fff";
-  pack buff[PACK_SIZE];
-} outpack;
+};
+struct __attribute__((packed))fullpack {
+  header hd;
+  pack dataku[1000];
+}outpack;
 
 void initmqttClient();
 void initTime();
@@ -53,12 +54,12 @@ void mqtt_client_loop();
 void initMpu();
 struct tm timeinfo;
 bool start_sampling = false;
-std::queue <fullpack*> toSend;
+std::queue <char*> toSend;
 
 //== == == == == == == == == == == == MPU == == == == == == == == == == == == == == =
 
 
-MPU6500 imu;               //Change to the name of any supported IMU! 
+MPU6050 imu;               //Change to the name of any supported IMU!
 calData calib = { 0 };
 AccelData accelData;
 bool mpuStatus = false;
@@ -104,3 +105,4 @@ const char* qosPath = "/qosPatch.txt";
 IPAddress localIP;
 unsigned long previousMillis = 0;
 const long interval = 15000;  // interval to wait for Wi-Fi connection (milliseconds)
+uint16_t count = 0;

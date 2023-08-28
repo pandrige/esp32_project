@@ -1,4 +1,4 @@
-void saveData(fullpack *dataToSave) {
+void saveData(char *dataToSave, size_t size, String name) {
   if (sdBeginstatus) {
     unsigned long start_write = millis();
     if (fileInFolder < 0 || fileInFolder > 59) {
@@ -8,11 +8,11 @@ void saveData(fullpack *dataToSave) {
         fileInFolder = 0;
       }
     }
-    String filename = "/DATA/" + folderName + "/" + (String)(dataToSave->rawtime);
+    String filename = "/DATA/" + folderName + "/" + name;
     //    Serial.print(filename);
     FsFile myFile;
     if (myFile.open(filename.c_str(), O_WRONLY | O_CREAT)) {
-      if (myFile.write((char*)dataToSave, sizeof(fullpack)) > 0) {
+      if (myFile.write(dataToSave, size) > 0) {
         printf(" Write success \n");
         uploadFromSD = true;
       } else {
@@ -29,11 +29,11 @@ void saveData(fullpack *dataToSave) {
 }
 
 void mqtt_client_loop(void *param) {
-  const TickType_t xFrequency = 1000;
+  const TickType_t xInterval = 2000;
   TickType_t xLastWakeTime = xTaskGetTickCount ();
   for (;;) {
     mqttClient.loop();
-    if ( pdTRUE == xTaskDelayUntil( &xLastWakeTime, xFrequency )) {
+    if ( pdTRUE == xTaskDelayUntil( &xLastWakeTime, xInterval )) {
       if (WiFi.status() == WL_CONNECTED) {
         if (!mqttClient.connected()) {
           mqttconnect();
@@ -46,22 +46,24 @@ void mqtt_client_loop(void *param) {
 void sendingData(void *param) {
   char filename[32];
   printf("Start Task sending data on Core %u \n", xPortGetCoreID());
-  const TickType_t xFrequency = 500;
+  const TickType_t xInterval = 300;
   TickType_t xLastWakeTime = xTaskGetTickCount ();
   for (;;) {
-    if ( pdTRUE == xTaskDelayUntil( &xLastWakeTime, xFrequency )) {
+    if ( pdTRUE == xTaskDelayUntil( &xLastWakeTime, xInterval )) {
       if (!toSend.empty()) {
         unsigned long start_write = millis();
-        fullpack *dataToSend = toSend.front();
-        sprintf(filename, "%u.bin", dataToSend->rawtime);
+        char* dataToSend = toSend.front();
+        header tempHd;
+        memcpy(&tempHd, dataToSend, sizeof(header));
+        sprintf(filename, "%u.bin", tempHd.rawtime);
         Serial.print("Publish : ");
         Serial.print(filename);
-
-        if (mqttClient.publish(PUBLISH_TOPIC.c_str(), (char*)dataToSend, sizeof(fullpack), false, qos.toInt())) {
+        size_t size = sizeof(header) + (sizeof(pack) * PACK_SIZE);
+        if (mqttClient.publish(PUBLISH_TOPIC.c_str(), dataToSend, size, false, qos.toInt())) {
           printf(" succeed \n");
         } else {
           printf(" Failed \n");
-          saveData(dataToSend);
+          saveData(dataToSend, size, (String)filename);
         }
         toSend.pop();
         delete(dataToSend);
@@ -88,7 +90,7 @@ void uploadData() {
       if (myFile.openNext(&uploadDir, O_READ)) {
         Serial.print("\n Upload File ");
         myFile.printName(&Serial);
-        if (mqttClient.publish(UPLOAD_TOPIC.c_str(), (char*)&myFile, sizeof(fullpack), false, qos.toInt())) {
+        if (mqttClient.publish(UPLOAD_TOPIC.c_str(), (char*)&myFile, myFile.size(), false, qos.toInt())) {
           printf("\tSucceed \n");
           myFile.getName(filename, sizeof(filename));
           if (uploadDir.remove(filename)) {
@@ -120,45 +122,45 @@ void uploadData() {
 
 void samplingData(void* param) {
   printf("Start Task sampling data on Core %u \n", xPortGetCoreID());
-  uint16_t count = 0;
   TickType_t xLastWakeTime = xTaskGetTickCount ();
   SimpleKalmanFilter simpleKalmanFilterX(0.001, 0.001, 0.01);
   SimpleKalmanFilter simpleKalmanFilterY(0.001, 0.001, 0.01);
   SimpleKalmanFilter simpleKalmanFilterZ(0.001, 0.001, 0.01);
   for (;;) {
     if ( pdTRUE == xTaskDelayUntil( &xLastWakeTime, xInterval )) {
-      pack* temp = &outpack.buff[count % PACK_SIZE];
-      imu.update();
-      imu.getAccel(&accelData);
-      temp->v1 = simpleKalmanFilterX.updateEstimate(accelData.accelX);
-      temp->v2 = simpleKalmanFilterY.updateEstimate(accelData.accelY);
-      temp->v3 = simpleKalmanFilterZ.updateEstimate(accelData.accelZ);
-
-      if (count % PACK_SIZE == PACK_SIZE - 1) {
-        if (ntpStatus && start_sampling) {
-          getLocalTime(&timeinfo);
-          outpack.rawtime = mktime(&timeinfo);
-          if (toSend.size() < 10) {
-            fullpack* dataq = (fullpack*)malloc(sizeof(fullpack));
-            memcpy(dataq, &outpack, sizeof(fullpack));
-            toSend.push(dataq);
+      if (start_sampling) {
+        imu.update();
+        imu.getAccel(&accelData);
+        pack* temp = &outpack.dataku[count % PACK_SIZE];
+        temp->v1 = simpleKalmanFilterX.updateEstimate(accelData.accelX);
+        temp->v2 = simpleKalmanFilterY.updateEstimate(accelData.accelY);
+        temp->v3 = simpleKalmanFilterZ.updateEstimate(accelData.accelZ);
+        if (count % PACK_SIZE == PACK_SIZE - 1) {
+          if (ntpStatus) {
+            getLocalTime(&timeinfo);
+            outpack.hd.rawtime = mktime(&timeinfo);
+            if (toSend.size() < 10) {
+              char* dataq = (char*)malloc(sizeof(header) + (sizeof(pack) * PACK_SIZE));
+              memcpy(dataq, &outpack, (sizeof(header) + (sizeof(pack)*PACK_SIZE)));
+              toSend.push(dataq);
+            }
+            //          Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
           }
-          Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
-        }
-        if (Serial.available()) {
-          String msg = Serial.readStringUntil('\n');
-          if (msg.equals("rst")) {
-            Serial.println("Start Reset SSID");
-            SPIFFS.remove(ssidPath);
-            SPIFFS.remove(passPath);
-            ESP.restart();
+          if (Serial.available()) {
+            String msg = Serial.readStringUntil('\n');
+            if (msg.equals("rst")) {
+              Serial.println("Start Reset SSID");
+              SPIFFS.remove(ssidPath);
+              SPIFFS.remove(passPath);
+              ESP.restart();
+            }
+          }
+          if (count == 64999) {
+            count = 999;
           }
         }
-        if (count == 64999) {
-          count = 999;
-        }
+        count++;
       }
-      count++;
     }
   }
 }
@@ -236,9 +238,28 @@ void messageReceived(MQTTClient * mqttClient, char topic[], char bytes[], int le
   if (msg.equals("start")) {
     Serial.println("Start Sampling");
     start_sampling = true;
+    count = 0;
   } else if (msg.equals("stop")) {
     Serial.println("Stop Sampling");
     start_sampling = false;
+  } if (start_sampling == false) {
+    if (msg.equals("500")) {
+      PACK_SIZE = 500;
+      xInterval = 2;
+      count = 0;
+    } else if (msg.equals("200")) {
+      PACK_SIZE = 200;
+      xInterval = 5;
+      count = 0;
+    } else if (msg.equals("100")) {
+      PACK_SIZE = 100;
+      xInterval = 10;
+      count = 0;
+    } else if (msg.equals("1000")) {
+      PACK_SIZE = 1000;
+      xInterval = 1;
+      count = 0;
+    }
   }
 }
 void initTime() {
@@ -255,7 +276,7 @@ void cbSyncTime(struct timeval * tv)  { // callback function to show when NTP wa
 void mqttconnect() {
   if (mqttClient.connect("", username.c_str(), mqtt_pass.c_str())) {
     printf("\n connect mqtt client \n");
-    mqttClient.subscribe(SUB_TOPIC, 2);
+    mqttClient.subscribe("command", 2);
     String sub_topic = "to/" + sensorNum;
     mqttClient.subscribe(sub_topic.c_str(), 2);
     mqttClient.publish("connected", sensorNum.c_str(), 2);
