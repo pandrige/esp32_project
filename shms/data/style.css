@@ -7,7 +7,6 @@ html {
 h1 {
   font-size: 1.8rem; 
   color: white;
-  
 }
 
 p { 
@@ -68,7 +67,7 @@ input[type=submit]:hover {
   background-color: #1282A2;
 }
 
-input[type=text], input[type=number], select {
+input[type=text], input[type=number], input[type=password], select {
   width: 50%;
   padding: 10px 20px;
   margin: 10px;
@@ -112,3 +111,23 @@ button {
 .button-off:hover {
   background-color: #252524;
 } 
+
+/* Rest of your existing CSS styles */
+
+/* Add these styles to align labels to the right and inputs to the left */
+form p label {
+  text-align: right;
+  display: inline-block;
+  width: 150px; /* Adjust this width as needed */
+  margin-right: 10px;
+}
+
+form p input[type="text"],input[type="password"],
+form p select {
+  width: calc(70% - 100px); /* Adjust this width based on label width */
+}
+
+/* Add a bit of spacing between elements for better readability */
+form p > * {
+  margin-bottom: 10px;
+}

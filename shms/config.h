@@ -27,12 +27,15 @@ WiFiClient wifiClient;
 MQTTClient mqttClient(16500);
 String PUBLISH_TOPIC;
 String UPLOAD_TOPIC;
-int PACK_SIZE = 1000 ;
+String UPLOAD_FOLDER;
+int PACK_SIZE;
 
 struct __attribute__((packed))pack {
   float v1, v2, v3;
 };
 struct __attribute__((packed))header{
+  uint64_t esp_id = ESP.getEfuseMac();
+  uint32_t foldName;
   uint32_t rawtime;
   char id = 'a';
   uint8_t num = 3;
@@ -91,6 +94,7 @@ String gRange;
 String ntpServer;
 String qos;
 String sensorNum;
+String samplingRate;
 
 // File paths to save input values permanently
 const char* sensorNumPath = "/sensorNumPath.txt";
@@ -102,7 +106,6 @@ const char* mqtt_passPath = "/mqtt_pass.txt";
 const char* gRangePath = "/gRangePath.txt";
 const char* ntpServerPath = "/ntpServerPath.txt";
 const char* qosPath = "/qosPatch.txt";
+const char* samplingPath = "/samplingRate.txt";
 IPAddress localIP;
-unsigned long previousMillis = 0;
-const long interval = 15000;  // interval to wait for Wi-Fi connection (milliseconds)
 uint16_t count = 0;

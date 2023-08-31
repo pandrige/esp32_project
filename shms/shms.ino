@@ -3,11 +3,11 @@
 void setup() {
   Serial.begin(115200);
   initSPIFFS();
-  initSD();
-  initMpu();
   if (!initWiFi()) {
     wifi_AP();
   } else {
+    initSD();
+    initMpu();
     initTime();
     sntp_set_time_sync_notification_cb(cbSyncTime);
     initmqttClient();

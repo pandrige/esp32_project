@@ -15,11 +15,11 @@ void saveData(char *dataToSave, size_t size, String name) {
       if (myFile.write(dataToSave, size) > 0) {
         printf(" Write success \n");
         uploadFromSD = true;
+        fileInFolder++;
       } else {
         printf(" Write failed \n");
       }
       myFile.close();
-      fileInFolder++;
     } else {
       printf(" Failed to make file \n");
     }
@@ -82,7 +82,7 @@ void sendingData(void *param) {
 void uploadData() {
   if (sdBeginstatus) {
     FsFile uploadDir;
-    char filename[11];
+    char filename[20];
     dir.open("/DATA/", O_READ);
     if (uploadDir.openNext(&dir, O_READ)) {
       uint32_t startTask = millis();
@@ -126,8 +126,13 @@ void samplingData(void* param) {
   SimpleKalmanFilter simpleKalmanFilterX(0.001, 0.001, 0.01);
   SimpleKalmanFilter simpleKalmanFilterY(0.001, 0.001, 0.01);
   SimpleKalmanFilter simpleKalmanFilterZ(0.001, 0.001, 0.01);
+  PACK_SIZE = samplingRate.toInt();
+  xInterval = 1000 / PACK_SIZE;
   for (;;) {
     if ( pdTRUE == xTaskDelayUntil( &xLastWakeTime, xInterval )) {
+      if (is_ssid_reset()) {
+        ESP.restart();
+      }
       if (start_sampling) {
         imu.update();
         imu.getAccel(&accelData);
@@ -139,6 +144,7 @@ void samplingData(void* param) {
           if (ntpStatus) {
             getLocalTime(&timeinfo);
             outpack.hd.rawtime = mktime(&timeinfo);
+            outpack.hd.foldName = UPLOAD_FOLDER.toInt();
             if (toSend.size() < 10) {
               char* dataq = (char*)malloc(sizeof(header) + (sizeof(pack) * PACK_SIZE));
               memcpy(dataq, &outpack, (sizeof(header) + (sizeof(pack)*PACK_SIZE)));
@@ -146,15 +152,7 @@ void samplingData(void* param) {
             }
             //          Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
           }
-          if (Serial.available()) {
-            String msg = Serial.readStringUntil('\n');
-            if (msg.equals("rst")) {
-              Serial.println("Start Reset SSID");
-              SPIFFS.remove(ssidPath);
-              SPIFFS.remove(passPath);
-              ESP.restart();
-            }
-          }
+
           if (count == 64999) {
             count = 999;
           }
@@ -164,6 +162,19 @@ void samplingData(void* param) {
     }
   }
 }
+bool is_ssid_reset() {
+  bool rst = false;
+  if (Serial.available()) {
+    String msg = Serial.readStringUntil('\n');
+    if (msg.equals("rst")) {
+      Serial.println("Start Reset SSID");
+      SPIFFS.remove(ssidPath);
+      SPIFFS.remove(passPath);
+      rst = true;
+    }
+  }
+  return rst;
+}
 
 void initmqttClient() {
   Serial.print("init mqtt client to broker : ");
@@ -171,8 +182,9 @@ void initmqttClient() {
   mqttClient.begin(broker.c_str(), wifiClient);
   mqttClient.onMessageAdvanced(messageReceived);
   mqttClient.setOptions(1, 1, 500);
-  String will_topic = "disconnected";
-  mqttClient.setWill(will_topic.c_str(), sensorNum.c_str());
+  String will_topic = "connection/" + sensorNum;
+  String msg = "0";
+  mqttClient.setWill(will_topic.c_str(), msg.c_str(), true, 2);
 }
 
 bool initSD() {
@@ -207,7 +219,7 @@ void initMpu() {
     Serial.println(err);
     while (true) {}
   }
-  Serial.println("Keep IMU level.");
+  Serial.println("Keep IMU level For Calibrating..");
   delay(5000);
   imu.calibrateAccelGyro(&calib);
   Serial.println("Calibration done!");
@@ -235,29 +247,39 @@ void initMpu() {
 
 void messageReceived(MQTTClient * mqttClient, char topic[], char bytes[], int length) {
   String msg = (String)bytes;
-  if (msg.equals("start")) {
+  if (msg.startsWith("start")) {
     Serial.println("Start Sampling");
     start_sampling = true;
     count = 0;
+    UPLOAD_FOLDER = msg.substring(5);
   } else if (msg.equals("stop")) {
     Serial.println("Stop Sampling");
     start_sampling = false;
+    UPLOAD_FOLDER = "";
   } if (start_sampling == false) {
-    if (msg.equals("500")) {
+    if (msg.equals("50")) {
+      Serial.println("set sampling rate = 50");
+      PACK_SIZE = 50;
+      xInterval = 1000 / PACK_SIZE;
+      count = 0;
+    } else if (msg.equals("500")) {
+      Serial.println("set sampling rate = 500");
       PACK_SIZE = 500;
-      xInterval = 2;
+      xInterval = 1000 / PACK_SIZE;
       count = 0;
     } else if (msg.equals("200")) {
+      Serial.println("set sampling rate = 200");
       PACK_SIZE = 200;
-      xInterval = 5;
+      xInterval = 1000 / PACK_SIZE;
       count = 0;
     } else if (msg.equals("100")) {
+      Serial.println("set sampling rate = 100");
       PACK_SIZE = 100;
-      xInterval = 10;
+      xInterval = 1000 / PACK_SIZE;
       count = 0;
     } else if (msg.equals("1000")) {
       PACK_SIZE = 1000;
-      xInterval = 1;
+      xInterval = 1000 / PACK_SIZE;
       count = 0;
     }
   }
@@ -279,7 +301,9 @@ void mqttconnect() {
     mqttClient.subscribe("command", 2);
     String sub_topic = "to/" + sensorNum;
     mqttClient.subscribe(sub_topic.c_str(), 2);
-    mqttClient.publish("connected", sensorNum.c_str(), 2);
+    String will_topic = "connection/" + sensorNum;
+    String msg = "1";
+    mqttClient.publish(will_topic.c_str(), msg.c_str(), true, 2);
   }
 }
 
@@ -296,9 +320,10 @@ void initSPIFFS() {
     ntpServer = readFile (SPIFFS, ntpServerPath);
     qos = readFile(SPIFFS, qosPath);
     sensorNum = readFile(SPIFFS, sensorNumPath);
+    samplingRate = readFile(SPIFFS, samplingPath);
     Serial.println("SPIFFS mounted successfully");
     PUBLISH_TOPIC = "from/" + sensorNum;
-    UPLOAD_TOPIC = "from/" + sensorNum + "/upload";
+    UPLOAD_TOPIC = "upload/" + sensorNum;
   }
 }
 
@@ -343,17 +368,11 @@ bool initWiFi() {
   WiFi.begin(ssid.c_str(), pass.c_str());
   Serial.println("Connecting to WiFi...");
 
-  unsigned long currentMillis = millis();
-  previousMillis = currentMillis;
-
   while (WiFi.status() != WL_CONNECTED) {
-    currentMillis = millis();
-    if (currentMillis - previousMillis >= interval) {
-      Serial.println("Failed to connect.");
+    if (is_ssid_reset()) {
       return false;
     }
   }
-
   Serial.println(WiFi.localIP());
   return true;
 }
@@ -362,7 +381,8 @@ void wifi_AP() {
   // Connect to Wi-Fi network with SSID and password
   Serial.println("Setting AP (Access Point)");
   // NULL sets an open Access Point
-  WiFi.softAP("SHMS-WIFI-MANAGER", NULL);
+  String AP = "SHMS-" + String(outpack.hd.esp_id, HEX);
+  WiFi.softAP(AP.c_str(), NULL);
 
   IPAddress IP = WiFi.softAPIP();
   Serial.print("AP IP address: ");
@@ -461,6 +481,15 @@ void wifi_AP() {
             Serial.println(sensorNum);
             // Write file to save value
             writeFile(SPIFFS, sensorNumPath, sensorNum.c_str());
+          }
+        }
+        if (p->name() == "samplingRate") {
+          samplingRate = p->value().c_str();
+          if (!samplingRate.equals("")) {
+            Serial.print("Sampling Rate set to: ");
+            Serial.println(samplingRate);
+            // Write file to save value
+            writeFile(SPIFFS, samplingPath, samplingRate.c_str());
           }
         }
         //Serial.printf("POST[%s]: %s\n", p->name().c_str(), p->value().c_str());

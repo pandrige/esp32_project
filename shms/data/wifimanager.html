@@ -14,11 +14,12 @@
     <div class="card-grid">
       <div class="card">
         <form action="/" method="POST">
+          <!-- ... (other inputs) ... -->
           <p>
             <label for="ssid">  WIFI-SSID  </label>
             <input type="text" id ="ssid" name="ssid"><br>
             <label for="pass">WIFI-Password</label>
-            <input type="text" id ="pass" name="pass"><br>
+            <input type="password" id ="pass" name="pass"><br>
             <label for="sensorNum">Sensor Number</label>
             <select name="sensorNum" id="sensorNum">
               <script>                
@@ -27,7 +28,7 @@
                 }
               </script>
             </select><br>
-            <label for="gRange">Choose G Range</label>
+            <label for="gRange">Gravity Range</label>
             <select name="gRange" id="gRange">
               <script>
                 const range = ["2G", "4G", "8G", "16G"];
@@ -36,25 +37,59 @@
                 }
               </script>
             </select><br>
-            <label for="broker">  MQTT Broker  </label>
-            <input type="text" id ="broker" name="broker" value="gw.wlan"><br>
-            <label for="username">MQTT Username</label>
-            <input type="text" id ="username" name="username"><br>
-            <label for="mqtt_pass">MQTT Password</label>
-            <input type="text" id ="mqtt_pass" name="mqtt_pass"><br>
-            <label for="qoS">Mqtt QoS Value </label>
-            <select name="qos" id="qos">
-              <option value="2"> QoS 2 (default)</option>
-              <option value="1"> QoS 1 </option>
-              <option value="0"> QoS 0 </option>
+            <label for="samplingRate">Sampling Rate</label>
+            <select name="samplingRate" id="samplingRate">
+              <script>
+                const ra = ["50","100", "200", "500", "1000"];
+                for(let i in ra){
+                  document.write("<option value = "+ ra[i] + ">"+ra[i]+"</option>");
+                }
+              </script>
             </select><br>
-            <label for="NTP Server">  NTP Server  </label>
-            <input type="text" id ="ntp" name="ntp" value="gw.wlan"><br>
-            <input type ="submit" value ="Submit">
           </p>
+          <!-- Add the "Advanced Options" checkbox -->
+          <label>
+            <input type="checkbox" id="showAdvanced"> More Options
+          </label><br><br>
+
+          <!-- Advanced Options Section (Initially Hidden) -->
+          <div id="advancedOptions" style="display: none;">
+            <!-- Add the input fields for advanced options here -->
+            <p>
+              <label for="broker">  MQTT Broker  </label>
+              <input type="text" id ="broker" name="broker" value="gw.wlan"><br>
+              <label for="username">MQTT Username</label>
+              <input type="text" id ="username" name="username"><br>
+              <label for="mqtt_pass">MQTT Password</label>
+              <input type="password" id ="mqtt_pass" name="mqtt_pass"><br>
+              <label for="qoS">Mqtt QoS Value </label>
+              <select name="qos" id="qos">
+                <option value="2"> QoS 2 (default)</option>
+                <option value="1"> QoS 1 </option>
+                <option value="0"> QoS 0 </option>
+              </select><br>
+              <label for="NTP Server">  NTP Server  </label>
+              <input type="text" id ="ntp" name="ntp" value="gw.wlan"><br>         
+            </p>
+          </div>
+          
+          <input type="submit" value="Submit">
         </form>
       </div>
     </div>
   </div>
+
+  <script>
+    const showAdvancedCheckbox = document.getElementById('showAdvanced');
+    const advancedOptions = document.getElementById('advancedOptions');
+
+    showAdvancedCheckbox.addEventListener('change', function() {
+      if (this.checked) {
+        advancedOptions.style.display = 'block';
+      } else {
+        advancedOptions.style.display = 'none';
+      }
+    });
+  </script>
 </body>
 </html>
