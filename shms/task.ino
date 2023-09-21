@@ -1,4 +1,5 @@
-void saveData(char *dataToSave, size_t size, String name) {
+void saveData(int size, String name) {
+  char* dataToSave = toSend.front();
   if (sdBeginstatus) {
     unsigned long start_write = millis();
     if (fileInFolder < 0 || fileInFolder > 59) {
@@ -12,7 +13,7 @@ void saveData(char *dataToSave, size_t size, String name) {
     //    Serial.print(filename);
     FsFile myFile;
     if (myFile.open(filename.c_str(), O_WRONLY | O_CREAT)) {
-      if (myFile.write(dataToSave, size) > 0) {
+      if (myFile.write((char*)dataToSave, size) > 0) {
         printf(" Write success \n");
         uploadFromSD = true;
         fileInFolder++;
@@ -31,6 +32,7 @@ void saveData(char *dataToSave, size_t size, String name) {
 void mqtt_client_loop(void *param) {
   const TickType_t xInterval = 2000;
   TickType_t xLastWakeTime = xTaskGetTickCount ();
+  Serial.println("Start Task mqtt client loop");
   for (;;) {
     mqttClient.loop();
     if ( pdTRUE == xTaskDelayUntil( &xLastWakeTime, xInterval )) {
@@ -58,12 +60,12 @@ void sendingData(void *param) {
         sprintf(filename, "%u.bin", tempHd.rawtime);
         Serial.print("Publish : ");
         Serial.print(filename);
-        size_t size = sizeof(header) + (sizeof(pack) * PACK_SIZE);
-        if (mqttClient.publish(PUBLISH_TOPIC.c_str(), dataToSend, size, false, qos.toInt())) {
+        int sizeFile = sizeof(header) + (sizeof(pack) * PACK_SIZE);
+        if (mqttClient.publish(PUBLISH_TOPIC.c_str(), dataToSend, sizeFile, false, qos.toInt())) {
           printf(" succeed \n");
         } else {
           printf(" Failed \n");
-          saveData(dataToSend, size, (String)filename);
+          saveData(sizeFile, (String)filename);
         }
         toSend.pop();
         delete(dataToSend);
@@ -89,8 +91,12 @@ void uploadData() {
       FsFile myFile;
       if (myFile.openNext(&uploadDir, O_READ)) {
         Serial.print("\n Upload File ");
-        myFile.printName(&Serial);
-        if (mqttClient.publish(UPLOAD_TOPIC.c_str(), (char*)&myFile, myFile.size(), false, qos.toInt())) {
+//        myFile.printName(&Serial);
+        header hD;
+        memcpy(&hD,&myFile,sizeof(hD));
+        Serial.println(hD.rawtime);
+        Serial.println(hD.esp_id);
+        if (mqttClient.publish(UPLOAD_TOPIC.c_str(),(char*)&myFile, myFile.size(), false, qos.toInt())) {
           printf("\tSucceed \n");
           myFile.getName(filename, sizeof(filename));
           if (uploadDir.remove(filename)) {
@@ -162,6 +168,7 @@ void samplingData(void* param) {
     }
   }
 }
+
 bool is_ssid_reset() {
   bool rst = false;
   if (Serial.available()) {
@@ -183,8 +190,12 @@ void initmqttClient() {
   mqttClient.onMessageAdvanced(messageReceived);
   mqttClient.setOptions(1, 1, 500);
   String will_topic = "connection/" + sensorNum;
-  String msg = "0";
-  mqttClient.setWill(will_topic.c_str(), msg.c_str(), true, 2);
+//  String msg = "0";
+  Status disConnect;
+  disConnect.msg = '0';
+  samplingRate.toCharArray(disConnect.sampling_R, 5);
+  gRange.toCharArray(disConnect.gravity_R, 3);
+  mqttClient.setWill(will_topic.c_str(), (char*)&disConnect, true, 2);
 }
 
 bool initSD() {
@@ -249,9 +260,9 @@ void messageReceived(MQTTClient * mqttClient, char topic[], char bytes[], int le
   String msg = (String)bytes;
   if (msg.startsWith("start")) {
     Serial.println("Start Sampling");
-    start_sampling = true;
-    count = 0;
     UPLOAD_FOLDER = msg.substring(5);
+    count = 0;
+    start_sampling = true;
   } else if (msg.equals("stop")) {
     Serial.println("Stop Sampling");
     start_sampling = false;
@@ -296,14 +307,21 @@ void cbSyncTime(struct timeval * tv)  { // callback function to show when NTP wa
 }
 
 void mqttconnect() {
+  Serial.println("connecting to mqtt broker");
   if (mqttClient.connect("", username.c_str(), mqtt_pass.c_str())) {
     printf("\n connect mqtt client \n");
     mqttClient.subscribe("command", 2);
     String sub_topic = "to/" + sensorNum;
     mqttClient.subscribe(sub_topic.c_str(), 2);
     String will_topic = "connection/" + sensorNum;
-    String msg = "1";
-    mqttClient.publish(will_topic.c_str(), msg.c_str(), true, 2);
+    Status payload;
+    payload.msg = '1';
+    samplingRate.toCharArray(payload.sampling_R, 5);
+    Serial.println(payload.sampling_R);
+    gRange.toCharArray(payload.gravity_R, 3);    
+    Serial.println(payload.gravity_R);
+    //    String msg = "1";
+    mqttClient.publish(will_topic.c_str(), (char*)&payload, sizeof(payload), true, 2);
   }
 }
 

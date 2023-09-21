@@ -33,7 +33,7 @@ int PACK_SIZE;
 struct __attribute__((packed))pack {
   float v1, v2, v3;
 };
-struct __attribute__((packed))header{
+struct __attribute__((packed))header {
   uint64_t esp_id = ESP.getEfuseMac();
   uint32_t foldName;
   uint32_t rawtime;
@@ -44,7 +44,13 @@ struct __attribute__((packed))header{
 struct __attribute__((packed))fullpack {
   header hd;
   pack dataku[1000];
-}outpack;
+} outpack;
+
+struct __attribute__((packed)) Status{
+  char msg;
+  char sampling_R[5];
+  char gravity_R[3];
+};
 
 void initmqttClient();
 void initTime();
@@ -62,7 +68,7 @@ std::queue <char*> toSend;
 //== == == == == == == == == == == == MPU == == == == == == == == == == == == == == =
 
 
-MPU6050 imu;               //Change to the name of any supported IMU!
+MPU6500 imu;               //Change to the name of any supported IMU!
 calData calib = { 0 };
 AccelData accelData;
 bool mpuStatus = false;
