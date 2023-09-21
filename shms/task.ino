@@ -91,12 +91,10 @@ void uploadData() {
       FsFile myFile;
       if (myFile.openNext(&uploadDir, O_READ)) {
         Serial.print("\n Upload File ");
-//        myFile.printName(&Serial);
-        header hD;
-        memcpy(&hD,&myFile,sizeof(hD));
-        Serial.println(hD.rawtime);
-        Serial.println(hD.esp_id);
-        if (mqttClient.publish(UPLOAD_TOPIC.c_str(),(char*)&myFile, myFile.size(), false, qos.toInt())) {
+        char temp[myFile.fileSize()];
+        myFile.printName(&Serial);
+        myFile.read(&temp, myFile.fileSize());
+        if (mqttClient.publish(UPLOAD_TOPIC.c_str(), (char*)&temp, sizeof(temp), false, qos.toInt())) {
           printf("\tSucceed \n");
           myFile.getName(filename, sizeof(filename));
           if (uploadDir.remove(filename)) {
@@ -190,7 +188,7 @@ void initmqttClient() {
   mqttClient.onMessageAdvanced(messageReceived);
   mqttClient.setOptions(1, 1, 500);
   String will_topic = "connection/" + sensorNum;
-//  String msg = "0";
+  //  String msg = "0";
   Status disConnect;
   disConnect.msg = '0';
   samplingRate.toCharArray(disConnect.sampling_R, 5);
@@ -318,7 +316,7 @@ void mqttconnect() {
     payload.msg = '1';
     samplingRate.toCharArray(payload.sampling_R, 5);
     Serial.println(payload.sampling_R);
-    gRange.toCharArray(payload.gravity_R, 3);    
+    gRange.toCharArray(payload.gravity_R, 3);
     Serial.println(payload.gravity_R);
     //    String msg = "1";
     mqttClient.publish(will_topic.c_str(), (char*)&payload, sizeof(payload), true, 2);
