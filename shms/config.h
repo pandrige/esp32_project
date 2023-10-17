@@ -9,7 +9,6 @@
 #include <AsyncTCP.h>
 #include <Wire.h>
 #include <SPIFFS.h>
-#include <SimpleKalmanFilter.h>
 #include <FastIMU.h>
 #define IMU_ADDRESS 0x68    //Change to the address of the IMU
 
@@ -27,12 +26,20 @@ WiFiClient wifiClient;
 MQTTClient mqttClient(16500);
 String PUBLISH_TOPIC;
 String UPLOAD_TOPIC;
-String UPLOAD_FOLDER;
+uint32_t UPLOAD_FOLDER;
 int PACK_SIZE;
 
 struct __attribute__((packed))pack {
   float v1, v2, v3;
 };
+
+struct __attribute__((packed))messege {
+  char head;
+  uint32_t timeStart;
+  int32_t delayStop;
+  uint64_t macAddr;
+}msgIn;
+
 struct __attribute__((packed))header {
   uint64_t esp_id = ESP.getEfuseMac();
   uint32_t foldName;
@@ -41,12 +48,13 @@ struct __attribute__((packed))header {
   uint8_t num = 3;
   char typed[4] = "fff";
 };
+
 struct __attribute__((packed))fullpack {
   header hd;
   pack dataku[1000];
 } outpack;
 
-struct __attribute__((packed)) Status{
+struct __attribute__((packed)) Status {
   char msg;
   char sampling_R[5];
   char gravity_R[3];

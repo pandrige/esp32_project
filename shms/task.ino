@@ -127,9 +127,6 @@ void uploadData() {
 void samplingData(void* param) {
   printf("Start Task sampling data on Core %u \n", xPortGetCoreID());
   TickType_t xLastWakeTime = xTaskGetTickCount ();
-  SimpleKalmanFilter simpleKalmanFilterX(0.001, 0.001, 0.01);
-  SimpleKalmanFilter simpleKalmanFilterY(0.001, 0.001, 0.01);
-  SimpleKalmanFilter simpleKalmanFilterZ(0.001, 0.001, 0.01);
   PACK_SIZE = samplingRate.toInt();
   xInterval = 1000 / PACK_SIZE;
   for (;;) {
@@ -138,30 +135,37 @@ void samplingData(void* param) {
         ESP.restart();
       }
       if (start_sampling) {
-        imu.update();
-        imu.getAccel(&accelData);
-        pack* temp = &outpack.dataku[count % PACK_SIZE];
-        temp->v1 = simpleKalmanFilterX.updateEstimate(accelData.accelX);
-        temp->v2 = simpleKalmanFilterY.updateEstimate(accelData.accelY);
-        temp->v3 = simpleKalmanFilterZ.updateEstimate(accelData.accelZ);
-        if (count % PACK_SIZE == PACK_SIZE - 1) {
-          if (ntpStatus) {
-            getLocalTime(&timeinfo);
-            outpack.hd.rawtime = mktime(&timeinfo);
-            outpack.hd.foldName = UPLOAD_FOLDER.toInt();
-            if (toSend.size() < 10) {
-              char* dataq = (char*)malloc(sizeof(header) + (sizeof(pack) * PACK_SIZE));
-              memcpy(dataq, &outpack, (sizeof(header) + (sizeof(pack)*PACK_SIZE)));
-              toSend.push(dataq);
+        if (ntpStatus) {
+          getLocalTime(&timeinfo);
+          outpack.hd.rawtime = mktime(&timeinfo);
+          if (outpack.hd.rawtime >= msgIn.timeStart) {
+            imu.update();
+            imu.getAccel(&accelData);
+            pack* temp = &outpack.dataku[count % PACK_SIZE];
+            temp->v1 = accelData.accelX;
+            temp->v2 = accelData.accelY;
+            temp->v3 = accelData.accelZ;
+            if (count % PACK_SIZE == PACK_SIZE - 1) {
+              if (toSend.size() < 10) {
+                char* dataq = (char*)malloc(sizeof(header) + (sizeof(pack) * PACK_SIZE));
+                memcpy(dataq, &outpack, (sizeof(header) + (sizeof(pack)*PACK_SIZE)));
+                toSend.push(dataq);
+              }
+              //          Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+              if (count == 64999) {
+                count = 999;
+              }
             }
-            //          Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+            count++;
           }
-
-          if (count == 64999) {
-            count = 999;
+          //Set AutoStop 
+          if (msgIn.delayStop > 0) {
+            if (outpack.hd.rawtime>=(msgIn.timeStart+msgIn.delayStop)) {
+              start_sampling=false;
+              Serial.println("Stop Sampling");
+            }
           }
         }
-        count++;
       }
     }
   }
@@ -255,17 +259,33 @@ void initMpu() {
 }
 
 void messageReceived(MQTTClient * mqttClient, char topic[], char bytes[], int length) {
-  String msg = (String)bytes;
-  if (msg.startsWith("start")) {
+  String temp = (String)bytes;
+  memcpy(&msgIn, &temp, length);
+  Serial.println("Message Coming");
+  Serial.println(msgIn.head);
+  if (msgIn.head == 'A') {
+    Serial.println("Start Sampling");
+    outpack.hd.foldName = msgIn.timeStart;
+    count = 0;
+    start_sampling = true;
+  } else if (msgIn.head == 'Z') {
+    Serial.println("Stop Sampling");
+    count = 0;
+    start_sampling = false;
+  }
+
+  /*
+    String msg = (String)bytes;
+    if (msg.startsWith("start")) {
     Serial.println("Start Sampling");
     UPLOAD_FOLDER = msg.substring(5);
     count = 0;
     start_sampling = true;
-  } else if (msg.equals("stop")) {
+    } else if (msg.equals("stop")) {
     Serial.println("Stop Sampling");
     start_sampling = false;
     UPLOAD_FOLDER = "";
-  } if (start_sampling == false) {
+    } if (start_sampling == false) {
     if (msg.equals("50")) {
       Serial.println("set sampling rate = 50");
       PACK_SIZE = 50;
@@ -291,7 +311,8 @@ void messageReceived(MQTTClient * mqttClient, char topic[], char bytes[], int le
       xInterval = 1000 / PACK_SIZE;
       count = 0;
     }
-  }
+    }
+  */
 }
 void initTime() {
   Serial.println("config NTP ");
