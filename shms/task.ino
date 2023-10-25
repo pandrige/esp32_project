@@ -30,7 +30,7 @@ void saveData(int size, String name) {
 }
 
 void mqtt_client_loop(void *param) {
-  const TickType_t xInterval = 2000;
+  const TickType_t xInterval = 1000;
   TickType_t xLastWakeTime = xTaskGetTickCount ();
   Serial.println("Start Task mqtt client loop");
   for (;;) {
@@ -134,17 +134,18 @@ void samplingData(void* param) {
       if (is_ssid_reset()) {
         ESP.restart();
       }
-      if (start_sampling) {
-        if (ntpStatus) {
-          getLocalTime(&timeinfo);
-          outpack.hd.rawtime = mktime(&timeinfo);
+      if (ntpStatus) {
+        getLocalTime(&timeinfo);
+        outpack.hd.rawtime = mktime(&timeinfo);
+        //        Serial.println(outpack.hd.rawtime);
+        if (start_sampling) {
           if (outpack.hd.rawtime >= msgIn.timeStart) {
             imu.update();
             imu.getAccel(&accelData);
             pack* temp = &outpack.dataku[count % PACK_SIZE];
-            temp->v1 = accelData.accelX;
-            temp->v2 = accelData.accelY;
-            temp->v3 = accelData.accelZ;
+            temp->v1 = accelData.accelX - zeroShift.v1;
+            temp->v2 = accelData.accelY - zeroShift.v2;
+            temp->v3 = accelData.accelZ - zeroShift.v3;
             if (count % PACK_SIZE == PACK_SIZE - 1) {
               if (toSend.size() < 10) {
                 char* dataq = (char*)malloc(sizeof(header) + (sizeof(pack) * PACK_SIZE));
@@ -158,10 +159,10 @@ void samplingData(void* param) {
             }
             count++;
           }
-          //Set AutoStop 
+          //Set AutoStop
           if (msgIn.delayStop > 0) {
-            if (outpack.hd.rawtime>=(msgIn.timeStart+msgIn.delayStop)) {
-              start_sampling=false;
+            if (outpack.hd.rawtime >= (msgIn.timeStart + msgIn.delayStop)) {
+              start_sampling = false;
               Serial.println("Stop Sampling");
             }
           }
@@ -190,13 +191,16 @@ void initmqttClient() {
   Serial.println(broker);
   mqttClient.begin(broker.c_str(), wifiClient);
   mqttClient.onMessageAdvanced(messageReceived);
+  //  mqttClient.onMessage();
   mqttClient.setOptions(1, 1, 500);
   String will_topic = "connection/" + sensorNum;
   //  String msg = "0";
-  Status disConnect;
+  //  Status disConnect;
   disConnect.msg = '0';
+  //  strcpy(&disConnect.);
   samplingRate.toCharArray(disConnect.sampling_R, 5);
   gRange.toCharArray(disConnect.gravity_R, 3);
+  //  disConnect.esp_id = ESP.getEfuseMac();
   mqttClient.setWill(will_topic.c_str(), (char*)&disConnect, true, 2);
 }
 
@@ -233,8 +237,7 @@ void initMpu() {
     while (true) {}
   }
   Serial.println("Keep IMU level For Calibrating..");
-  delay(5000);
-  imu.calibrateAccelGyro(&calib);
+  zero_shift();
   Serial.println("Calibration done!");
 
   if (gRange.equals("2G")) {
@@ -259,60 +262,40 @@ void initMpu() {
 }
 
 void messageReceived(MQTTClient * mqttClient, char topic[], char bytes[], int length) {
-  String temp = (String)bytes;
-  memcpy(&msgIn, &temp, length);
+  memcpy(&msgIn, &bytes[0], length);
   Serial.println("Message Coming");
-  Serial.println(msgIn.head);
-  if (msgIn.head == 'A') {
-    Serial.println("Start Sampling");
-    outpack.hd.foldName = msgIn.timeStart;
-    count = 0;
-    start_sampling = true;
-  } else if (msgIn.head == 'Z') {
-    Serial.println("Stop Sampling");
-    count = 0;
-    start_sampling = false;
+  if (msgIn.macAddr == ESP.getEfuseMac() || msgIn.macAddr == 0) {
+    Serial.println("MAC Addr Match");
+    if (msgIn.head == 'A') {
+      Serial.println("Start Sampling");
+      outpack.hd.foldName = msgIn.timeStart;
+      count = 0;
+      start_sampling = true;
+    } else if (msgIn.head == 'Z') {
+      Serial.println("Stop Sampling");
+      count = 0;
+      start_sampling = false;
+    } else if (msgIn.head == 'Q') { //Zero Shift
+      zero_shift();
+    }
+  } else {
+    Serial.println("MAC Addr dont Match");
   }
-
-  /*
-    String msg = (String)bytes;
-    if (msg.startsWith("start")) {
-    Serial.println("Start Sampling");
-    UPLOAD_FOLDER = msg.substring(5);
-    count = 0;
-    start_sampling = true;
-    } else if (msg.equals("stop")) {
-    Serial.println("Stop Sampling");
-    start_sampling = false;
-    UPLOAD_FOLDER = "";
-    } if (start_sampling == false) {
-    if (msg.equals("50")) {
-      Serial.println("set sampling rate = 50");
-      PACK_SIZE = 50;
-      xInterval = 1000 / PACK_SIZE;
-      count = 0;
-    } else if (msg.equals("500")) {
-      Serial.println("set sampling rate = 500");
-      PACK_SIZE = 500;
-      xInterval = 1000 / PACK_SIZE;
-      count = 0;
-    } else if (msg.equals("200")) {
-      Serial.println("set sampling rate = 200");
-      PACK_SIZE = 200;
-      xInterval = 1000 / PACK_SIZE;
-      count = 0;
-    } else if (msg.equals("100")) {
-      Serial.println("set sampling rate = 100");
-      PACK_SIZE = 100;
-      xInterval = 1000 / PACK_SIZE;
-      count = 0;
-    } else if (msg.equals("1000")) {
-      PACK_SIZE = 1000;
-      xInterval = 1000 / PACK_SIZE;
-      count = 0;
-    }
-    }
-  */
+}
+void zero_shift() {
+  start_sampling = false;
+  delay(2000);
+  imu.calibrateAccelGyro(&calib);
+  for (int i = 0; i < 1000; i++) {
+    imu.update();
+    imu.getAccel(&accelData);
+    zeroShift.v1 += accelData.accelX ;
+    zeroShift.v2 += accelData.accelY ;
+    zeroShift.v3 += accelData.accelZ ;
+  }
+  zeroShift.v1 /= 1000 ;
+  zeroShift.v2 /= 1000 ;
+  zeroShift.v3 /= 1000;
 }
 void initTime() {
   Serial.println("config NTP ");

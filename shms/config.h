@@ -31,7 +31,7 @@ int PACK_SIZE;
 
 struct __attribute__((packed))pack {
   float v1, v2, v3;
-};
+}zeroShift;
 
 struct __attribute__((packed))messege {
   char head;
@@ -58,7 +58,8 @@ struct __attribute__((packed)) Status {
   char msg;
   char sampling_R[5];
   char gravity_R[3];
-};
+  uint64_t esp_id = ESP.getEfuseMac();
+}disConnect;
 
 void initmqttClient();
 void initTime();
